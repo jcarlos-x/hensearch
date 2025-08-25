@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMOHentai Search - Modern Sidebar</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link href="./style.css" rel="stylesheet">
+</head>
+<body class="min-h-screen transition-all duration-300 font-inter bg-app">
+    <!-- Sidebar Overlay for mobile -->
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden hidden"></div>
+    
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+        <!-- Sidebar Header -->
+        <div class="sidebar-header">
+            <div class="flex items-center space-x-3">
+                <div class="sidebar-logo">
+                    <i class="fas fa-search text-2xl"></i>
+                </div>
+                <div class="sidebar-brand">
+                    <h1 class="text-xl font-bold">TMOHentai</h1>
+                    <p class="text-sm opacity-75">Search v1.3.0</p>
+                </div>
+            </div>
+            <button id="sidebarToggle" class="sidebar-toggle lg:hidden">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <!-- Navigation -->
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <h3 class="nav-title">BÚSQUEDA</h3>
+                <ul class="nav-list">
+                    <li class="nav-item active">
+                        <i class="fas fa-search"></i>
+                        <span>Búsqueda</span>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+        
+        <!-- Search Form in Sidebar -->
+        <div class="sidebar-search">
+            <form id="searchForm" class="space-y-4">
+                <!-- Main Search Input -->
+                <div class="search-input-group">
+                    <div class="search-input-wrapper">
+                        <input type="text" id="searchQuery" placeholder="Buscar contenido..." class="search-input">
+                        <div class="search-input-icon">
+                            <i class="fas fa-search"></i>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Search Type -->
+                <div class="form-group">
+                    <label class="form-label">Buscar por</label>
+                    <select id="searchBy" class="form-select">
+                        <option value="name">📖 Nombre</option>
+                        <option value="artist">🎨 Artista</option>
+                        <option value="magazine">📰 Revista</option>
+                        <option value="tag">🏷️ Etiqueta</option>
+                    </select>
+                </div>
+                
+                <!-- Advanced Filters Toggle -->
+                <button type="button" id="toggleAdvanced" class="advanced-toggle">
+                    <i class="fas fa-sliders-h"></i>
+                    <span>Filtros Avanzados</span>
+                    <i class="fas fa-chevron-down toggle-icon"></i>
+                </button>
+                
+                <!-- Advanced Filters -->
+                <div id="advancedFilters" class="advanced-filters">
+                    <div class="form-group">
+                        <label class="form-label">Tipo de contenido</label>
+                        <select id="contentType" class="form-select">
+                            <option value="all">🔍 Todos</option>
+                            <option value="hentai">� Hentai</option>
+                            <option value="yaoi">👨‍❤️‍👨 Yaoi</option>
+                            <option value="yuri">👩‍❤️‍👩 Yuri</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Vista</label>
+                        <select id="viewMode" class="form-select">
+                            <option value="thumbnails">�️ Miniaturas</option>
+                            <option value="list">� Lista</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Ordenar por</label>
+                        <select id="order" class="form-select">
+                            <option value="publication_date">� Fecha</option>
+                            <option value="rating">⭐ Rating</option>
+                            <option value="title">🔤 Título</option>
+                            <option value="views">� Vistas</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Dirección</label>
+                        <select id="sortDirection" class="form-select">
+                            <option value="desc">📉 Descendente</option>
+                            <option value="asc">📈 Ascendente</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Search Button -->
+                <button type="submit" class="search-btn-sidebar">
+                    <i class="fas fa-search"></i>
+                    <span>Buscar</span>
+                    <div class="btn-pulse"></div>
+                </button>
+            </form>
+        </div>
+        
+        <!-- Sidebar Footer -->
+        <div class="sidebar-footer">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <!-- Theme Toggle -->
+                    <button id="themeToggle" class="theme-toggle-sidebar">
+                        <i class="fas fa-sun"></i>
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    
+                    <!-- API Status -->
+                    <div id="apiStatus" class="api-status">
+                        <div class="status-dot"></div>
+                        <span class="status-text">Conectando...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+    
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Mobile Header -->
+        <header class="mobile-header lg:hidden">
+            <button id="mobileMenuToggle" class="mobile-menu-btn">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="mobile-title">
+                <h1>TMOHentai Search</h1>
+            </div>
+            <button id="themeToggleMobile" class="mobile-action-btn">
+                <i class="fas fa-moon"></i>
+            </button>
+        </header>
+        
+        <!-- Content Area -->
+        <div class="content-wrapper">
+            <!-- Welcome/Empty State -->
+            <div id="welcomeState" class="welcome-state">
+                <div class="welcome-content">
+                    <div class="welcome-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <h2 class="welcome-title">¡Bienvenido a TMOHentai Search!</h2>
+                    <p class="welcome-description">
+                        Utiliza el panel de búsqueda de la izquierda para explorar contenido.
+                        Puedes buscar por nombre, artista, revista o etiquetas.
+                    </p>
+                    <div class="welcome-features">
+                        <div class="feature-item">
+                            <i class="fas fa-bolt text-yellow-400"></i>
+                            <span>Búsqueda rápida</span>
+                        </div>
+                        <div class="feature-item">
+                            <i class="fas fa-filter text-blue-400"></i>
+                            <span>Filtros inteligentes</span>
+                        </div>
+                        <div class="feature-item">
+                            <i class="fas fa-mobile-alt text-green-400"></i>
+                            <span>Diseño responsive</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results Section -->
+            <div id="resultsSection" class="results-section hidden">
+                <div class="results-header">
+                    <div class="results-title-wrapper">
+                        <h2 class="results-title">
+                            <i class="fas fa-th-large"></i>
+                            <span>Resultados</span>
+                            <span id="resultsCount" class="results-count">0 elementos</span>
+                        </h2>
+                    </div>
+                </div>
+                
+                <div id="resultsContainer" class="results-grid thumbnails"></div>
+                
+                <!-- Pagination -->
+                <div id="paginationContainer" class="pagination-container hidden">
+                    <div class="pagination">
+                        <button id="prevPageBtn" class="pagination-btn" disabled>
+                            <i class="fas fa-chevron-left"></i>
+                            Anterior
+                        </button>
+                        
+                        <div class="pagination-info">
+                            <span>Página <span id="currentPageNum">1</span> de <span id="totalPagesNum">?</span></span>
+                        </div>
+                        
+                        <button id="nextPageBtn" class="pagination-btn" disabled>
+                            Siguiente
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- No Results -->
+            <div id="noResults" class="no-results hidden">
+                <div class="no-results-content">
+                    <div class="no-results-icon">
+                        <i class="fas fa-search-minus"></i>
+                    </div>
+                    <h3 class="no-results-title">No se encontraron resultados</h3>
+                    <p class="no-results-description">
+                        Intenta con otros términos de búsqueda o ajusta los filtros
+                    </p>
+                    <div class="no-results-suggestions">
+                        <div class="suggestion-tag">Verifica la ortografía</div>
+                        <div class="suggestion-tag">Usa términos más generales</div>
+                        <div class="suggestion-tag">Prueba filtros diferentes</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Error Message -->
+            <div id="errorMessage" class="error-message hidden">
+                <div class="error-content">
+                    <div class="error-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <div class="error-text">
+                        <h4 class="error-title">Error de Conexión</h4>
+                        <p class="error-description" id="errorText">No se pudo conectar con la API</p>
+                    </div>
+                    <button class="error-retry-btn" onclick="searchManager.performSearch()">
+                        <i class="fas fa-redo"></i>
+                        Reintentar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p class="loading-text">Buscando contenido...</p>
+            <div class="loading-dots">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>
