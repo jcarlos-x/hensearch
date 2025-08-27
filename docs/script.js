@@ -182,7 +182,9 @@ class SearchManager {
         
         this.currentQuery = '';
         this.isSearching = false;
-        this.baseUrl = 'http://134.209.116.239:3000';
+        
+        // Configuración del backend - carga desde localStorage o usa valor por defecto
+        this.baseUrl = localStorage.getItem('backend_url') || 'http://localhost:3000';
         
         // Pagination state
         this.currentPage = 1;
@@ -193,6 +195,7 @@ class SearchManager {
 
     init() {
         this.attachEventListeners();
+        this.initializeConfigPanel();
         this.showWelcomeState();
         this.checkBackendStatus();
     }
@@ -217,6 +220,14 @@ class SearchManager {
         } catch (error) {
             if (statusDot) statusDot.style.background = 'var(--error)';
             if (statusText) statusText.textContent = 'Offline';
+            
+            // Si es la primera vez y no puede conectar, mostrar configuración automáticamente
+            if (!localStorage.getItem('backend_url_configured')) {
+                setTimeout(() => {
+                    this.toggleConfigPanel();
+                    localStorage.setItem('backend_url_configured', 'true');
+                }, 2000);
+            }
         }
     }
 
@@ -341,7 +352,7 @@ class SearchManager {
             // Mostrar error más específico según el tipo
             let errorMessage = `Error al buscar: ${error.message}`;
             if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                errorMessage = 'No se pudo conectar al servidor. Verifica que el backend esté ejecutándose en http://134.209.116.239:3000';
+                errorMessage = `No se pudo conectar al servidor. Verifica que el backend esté ejecutándose en ${this.baseUrl}`;
             } else if (error.message.includes('429')) {
                 errorMessage = 'Demasiadas solicitudes. Espera un momento antes de buscar nuevamente.';
             }
@@ -404,7 +415,7 @@ class SearchManager {
         // Guardar la URL real de la imagen para lazy loading
         let realImageUrl = null;
         if (item.image_url) {
-            realImageUrl = `http://134.209.116.239:3000/api/proxy-image?url=${encodeURIComponent(item.image_url)}`;
+            realImageUrl = `${this.baseUrl}/api/proxy-image?url=${encodeURIComponent(item.image_url)}`;
         }
         
         const safeCategory = item.category || item.type || 'General';
@@ -1236,6 +1247,245 @@ class SearchManager {
         setTimeout(() => {
             this.hideDownloadProgress();
         }, 5000);
+    }
+
+    // ===== MÉTODOS DE CONFIGURACIÓN =====
+    
+    initializeConfigPanel() {
+        // Crear botón de configuración
+        this.createConfigButton();
+        // Crear panel de configuración
+        this.createConfigPanel();
+    }
+
+    createConfigButton() {
+        const configButton = document.createElement('button');
+        configButton.innerHTML = '<i class="fas fa-cog"></i> Configuración';
+        configButton.className = 'config-button';
+        configButton.id = 'config-button';
+        configButton.onclick = () => this.toggleConfigPanel();
+        
+        // Agregar al body
+        document.body.appendChild(configButton);
+    }
+
+    createConfigPanel() {
+        const configPanel = document.createElement('div');
+        configPanel.id = 'config-panel';
+        configPanel.className = 'config-panel hidden';
+        configPanel.innerHTML = `
+            <div class="config-overlay" onclick="window.searchManager.toggleConfigPanel()"></div>
+            <div class="config-content">
+                <div class="config-header">
+                    <h3><i class="fas fa-cog"></i> Configuración del Backend</h3>
+                    <button class="config-close" onclick="window.searchManager.toggleConfigPanel()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="config-body">
+                    <div class="config-field">
+                        <label for="backend-url">
+                            <i class="fas fa-server"></i> URL del Servidor Backend:
+                        </label>
+                        <input type="text" id="backend-url" value="${this.baseUrl}" 
+                               placeholder="http://tu-servidor.com:3000">
+                        <small class="config-help">
+                            Ejemplo: http://192.168.1.100:3000 o https://api.tudominio.com
+                        </small>
+                    </div>
+                    
+                    <div class="config-actions">
+                        <button onclick="window.searchManager.testConnection()" class="btn-test">
+                            <i class="fas fa-wifi"></i> Probar Conexión
+                        </button>
+                        <button onclick="window.searchManager.saveConfig()" class="btn-save">
+                            <i class="fas fa-save"></i> Guardar
+                        </button>
+                        <button onclick="window.searchManager.resetConfig()" class="btn-reset">
+                            <i class="fas fa-undo"></i> Restablecer
+                        </button>
+                    </div>
+                    
+                    <div id="config-status" class="config-status"></div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(configPanel);
+    }
+
+    toggleConfigPanel() {
+        const panel = document.getElementById('config-panel');
+        panel.classList.toggle('hidden');
+        
+        // Actualizar valor en el input cuando se abre
+        if (!panel.classList.contains('hidden')) {
+            document.getElementById('backend-url').value = this.baseUrl;
+            document.getElementById('config-status').innerHTML = '';
+        }
+    }
+
+    async testConnection() {
+        const urlInput = document.getElementById('backend-url');
+        const testUrl = urlInput.value.trim();
+        const statusDiv = document.getElementById('config-status');
+        
+        if (!testUrl) {
+            statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-exclamation-triangle"></i> Por favor ingresa una URL</div>';
+            return;
+        }
+        
+        // Validar formato básico de URL
+        try {
+            new URL(testUrl);
+        } catch {
+            statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-exclamation-triangle"></i> Formato de URL inválido</div>';
+            return;
+        }
+        
+        statusDiv.innerHTML = '<div class="status-testing"><i class="fas fa-spinner fa-spin"></i> Probando conexión...</div>';
+        
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const response = await fetch(`${testUrl}/api/health`, { 
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                },
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const data = await response.json();
+                statusDiv.innerHTML = '<div class="status-success"><i class="fas fa-check-circle"></i> ✅ Conexión exitosa! Servidor funcionando correctamente</div>';
+            } else {
+                statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-exclamation-triangle"></i> ❌ Servidor respondió con error HTTP ' + response.status + '</div>';
+            }
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-clock"></i> ❌ Tiempo de conexión agotado</div>';
+            } else {
+                statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-times-circle"></i> ❌ No se pudo conectar al servidor</div>';
+            }
+        }
+    }
+
+    saveConfig() {
+        const urlInput = document.getElementById('backend-url');
+        const newUrl = urlInput.value.trim();
+        const statusDiv = document.getElementById('config-status');
+        const saveButton = document.querySelector('.btn-save');
+        
+        // Efecto visual en el botón
+        saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+        saveButton.disabled = true;
+        
+        if (!newUrl) {
+            statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-exclamation-triangle"></i> Por favor ingresa una URL válida</div>';
+            // Restaurar botón
+            saveButton.innerHTML = '<i class="fas fa-save"></i> Guardar';
+            saveButton.disabled = false;
+            return;
+        }
+        
+        // Validar formato básico de URL
+        try {
+            new URL(newUrl);
+        } catch {
+            statusDiv.innerHTML = '<div class="status-error"><i class="fas fa-exclamation-triangle"></i> Formato de URL inválido</div>';
+            // Restaurar botón
+            saveButton.innerHTML = '<i class="fas fa-save"></i> Guardar';
+            saveButton.disabled = false;
+            return;
+        }
+        
+        // Simular delay para mostrar el guardado
+        setTimeout(() => {
+            // Mostrar estado de guardado
+            statusDiv.innerHTML = '<div class="status-success"><i class="fas fa-check-circle"></i> ✅ ¡Configuración guardada correctamente!</div>';
+            
+            // Guardar en localStorage
+            localStorage.setItem('backend_url', newUrl);
+            this.baseUrl = newUrl;
+            
+            // Actualizar botón con éxito
+            saveButton.innerHTML = '<i class="fas fa-check"></i> ¡Guardado!';
+            saveButton.style.background = 'var(--success)';
+            
+            // Actualizar estado de conexión
+            this.updateConnectionStatus(false, 'Verificando conexión...');
+            
+            // Mostrar notificación externa
+            this.showConfigNotification(`✅ Backend configurado exitosamente: ${newUrl}`, 'success');
+            
+            // Cerrar panel después de un delay para que se vea la confirmación
+            setTimeout(() => {
+                this.toggleConfigPanel();
+                // Restaurar botón al cerrar
+                saveButton.innerHTML = '<i class="fas fa-save"></i> Guardar';
+                saveButton.disabled = false;
+                saveButton.style.background = '';
+            }, 2500);
+            
+            // Verificar nueva conexión
+            setTimeout(() => {
+                this.checkBackendStatus();
+            }, 1000);
+        }, 800);
+    }
+
+    resetConfig() {
+        if (confirm('¿Estás seguro de que quieres restablecer la configuración a los valores por defecto?')) {
+            localStorage.removeItem('backend_url');
+            this.baseUrl = 'http://localhost:3000';
+            document.getElementById('backend-url').value = this.baseUrl;
+            document.getElementById('config-status').innerHTML = '';
+            
+            this.showConfigNotification('🔄 Configuración restablecida', 'info');
+        }
+    }
+
+    showConfigNotification(message, type = 'info') {
+        // Eliminar notificaciones anteriores
+        const existingNotifications = document.querySelectorAll('.config-notification');
+        existingNotifications.forEach(notif => notif.remove());
+        
+        // Crear notificación
+        const notification = document.createElement('div');
+        notification.className = `config-notification ${type}`;
+        notification.innerHTML = `
+            <div class="notification-content">
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'}"></i>
+                <span>${message}</span>
+            </div>
+            <button class="notification-close" onclick="this.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Mostrar con animación
+        setTimeout(() => notification.classList.add('show'), 100);
+        
+        // Auto-ocultar después de 5 segundos (más tiempo para leer)
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.remove();
+                    }
+                }, 300);
+            }
+        }, 5000);
+        
+        return notification;
     }
 }
 
