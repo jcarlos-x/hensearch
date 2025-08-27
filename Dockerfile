@@ -1,9 +1,5 @@
-# Dockerfile para TMOHentai Search Frontend
+# Dockerfile para HenSearch Frontend
 FROM nginx:alpine
-
-# Información del mantenedor
-LABEL maintainer="HenSearch App" \
-      description="Frontend web application for TM0H3nt41 search with dynamic backend configuration"
 
 # Copiar archivos estáticos de la aplicación
 COPY docs/ /usr/share/nginx/html/
