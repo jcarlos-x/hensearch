@@ -7,7 +7,7 @@
 
 ## 📋 Descripción
 
-TMOH3nt41 Search es una aplicación web frontend moderna y responsive que proporciona una interfaz elegante para buscar y explorar contenido de TMOH3nt41. La aplicación utiliza un diseño de sidebar moderno con tema oscuro/claro y está completamente containerizada con Docker.
+HenSearch es una aplicación web frontend moderna y responsive que proporciona una interfaz elegante para buscar y explorar contenido de TMOH3nt41. La aplicación utiliza un diseño de sidebar moderno con tema oscuro/claro y está completamente containerizada con Docker.
 
 ## ✨ Características Principales
 
@@ -93,7 +93,7 @@ El archivo `nginx.conf` incluye:
 - **Por Etiquetas**: Filtrado por categorías
 
 ### Filtros Avanzados
-- **Tipo de Contenido**: Hentai, Yaoi, Yuri
+- **Tipo de Contenido**: Hen-, Ya-, Yu-
 - **Modo de Vista**: Miniaturas o Lista
 - **Ordenamiento**: Por fecha, rating, título, vistas
 - **Dirección**: Ascendente o descendente
