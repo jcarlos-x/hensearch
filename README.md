@@ -46,7 +46,7 @@ curl http://localhost:8080
 
 ```bash
 # Clonar el repositorio
-git clone <tu-repositorio>
+git clone https://github.com/jcarlos-x/hensearch.git
 cd hensearch
 
 # Construir la imagen Docker
