@@ -230,4 +230,4 @@ Para habilitar el CI/CD en tu fork:
 
 ---
 
-**Versión**: 1.3.0 | **Mantenedor**: HenSearch App | **Última actualización**: Agosto 2025
+**Versión**: 1.3.1 | **Mantenedor**: HenSearch App | **Última actualización**: Agosto 2025

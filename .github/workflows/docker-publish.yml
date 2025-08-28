@@ -4,6 +4,11 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.4.0)'
+        required: false
+        default: 'auto'
 
 env:
   REGISTRY: docker.io
@@ -41,20 +46,50 @@ jobs:
         # Get short commit hash
         COMMIT_SHORT=$(git rev-parse --short HEAD)
         
-        # For main branch, always build and push
+        # Extract version from README.md if exists
+        README_VERSION=""
+        if [ -f "README.md" ]; then
+          README_VERSION=$(grep -oP 'version-\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+        fi
+        
+        # Extract version from package.json if exists
+        PACKAGE_VERSION=""
+        if [ -f "package.json" ]; then
+          PACKAGE_VERSION=$(grep -oP '"version":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' package.json)
+        fi
+        
+        # Determine version tag
+        if [ "${{ github.event.inputs.version }}" != "" ] && [ "${{ github.event.inputs.version }}" != "auto" ]; then
+          VERSION_TAG="${{ github.event.inputs.version }}"
+          echo "🎯 Using manual version: ${VERSION_TAG}"
+        elif [ -n "$README_VERSION" ]; then
+          VERSION_TAG="v${README_VERSION}"
+          echo "📖 Using version from README: ${VERSION_TAG}"
+        elif [ -n "$PACKAGE_VERSION" ]; then
+          VERSION_TAG="v${PACKAGE_VERSION}"
+          echo "📦 Using version from package.json: ${VERSION_TAG}"
+        else
+          # Generate auto version based on date
+          VERSION_TAG="v$(date +%Y.%m.%d)"
+          echo "🤖 Auto-generated version: ${VERSION_TAG}"
+        fi
+        
+        # Always use latest for main branch
         DOCKER_TAG="latest"
-        VERSION_TAG="v1.3.0"
         PUSH_IMAGE="true"
         
         echo "docker-tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
         echo "version-tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
         echo "commit-short=${COMMIT_SHORT}" >> $GITHUB_OUTPUT
         echo "push-image=${PUSH_IMAGE}" >> $GITHUB_OUTPUT
+        echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
         
+        echo ""
         echo "🏷️ Generated tags:"
         echo "Main tag: ${DOCKER_TAG}"
         echo "Version tag: ${VERSION_TAG}"
         echo "Commit: ${COMMIT_SHORT}"
+        echo "Timestamp: ${TIMESTAMP}"
         echo "Will push: ${PUSH_IMAGE}"
     
     - name: 🔐 Login to Docker Hub
@@ -67,13 +102,14 @@ jobs:
       run: |
         echo "🏗️ Building Docker image..."
         
-        # Build the image
+        # Build the image with latest tag
         docker build -t ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }} .
         
-        # Tag with version if it's a main branch build
-        if [ -n "${{ steps.meta.outputs.version-tag }}" ]; then
-          docker tag ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }} ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version-tag }}
-        fi
+        # Tag with version
+        docker tag ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }} ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version-tag }}
+        
+        # Also tag with timestamp for backup
+        docker tag ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }} ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.timestamp }}
         
         echo "✅ Docker image built successfully"
         
@@ -138,14 +174,18 @@ jobs:
       run: |
         echo "🚀 Pushing Docker image to Docker Hub..."
         
-        # Push main tag
+        # Push all tags
         docker push ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}
-        
-        # Push version tag
         docker push ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version-tag }}
+        docker push ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.timestamp }}
         
         echo "✅ Docker image pushed successfully!"
         echo "🔗 Available at: https://hub.docker.com/r/xlokius/hensearch"
+        echo ""
+        echo "📦 Pushed tags:"
+        echo "- ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}"
+        echo "- ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version-tag }}"
+        echo "- ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.timestamp }}"
     
     - name: 📋 Summary
       if: always()
@@ -155,12 +195,19 @@ jobs:
         echo "### 📊 Build Information" >> $GITHUB_STEP_SUMMARY
         echo "- **Branch**: main" >> $GITHUB_STEP_SUMMARY
         echo "- **Commit**: \`${{ steps.meta.outputs.commit-short }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Docker Tags**: \`latest\`, \`v1.3.0\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: \`${{ steps.meta.outputs.version-tag }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Tags**: \`latest\`, \`${{ steps.meta.outputs.version-tag }}\`, \`${{ steps.meta.outputs.timestamp }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Status**: ✅ Built and pushed to Docker Hub" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🚀 Usage" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "# Latest version" >> $GITHUB_STEP_SUMMARY
         echo "docker pull ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# Specific version" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version-tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# Run container" >> $GITHUB_STEP_SUMMARY
         echo "docker run -d -p 80:80 --name hensearch ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
