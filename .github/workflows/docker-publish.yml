@@ -1,0 +1,427 @@
+name: 🐳 Docker Build & Push to Docker Hub
+
+# Triggers para el workflow
+on:
+  # Push a main branch
+  push:
+    branches: [ "main", "master" ]
+    # También ejecutar cuando se cambien archivos importantes
+    paths:
+      - 'Dockerfile'
+      - 'docs/**'
+      - 'nginx.conf'
+      - '.github/workflows/docker-publish.yml'
+  
+  # Pull requests a main branch
+  pull_request:
+    branches: [ "main", "master" ]
+    paths:
+      - 'Dockerfile'
+      - 'docs/**'
+      - 'nginx.conf'
+  
+  # Permitir ejecución manual
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker tag to build (leave empty for auto-generated)'
+        required: false
+        default: ''
+      push_to_hub:
+        description: 'Push to Docker Hub'
+        type: boolean
+        required: false
+        default: true
+
+# Variables de entorno globales
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: xlokius/hensearch
+  
+jobs:
+  # Job para análisis de código y testing
+  code-analysis:
+    name: 🔍 Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🔍 Analyze Dockerfile
+      run: |
+        echo "🔍 Analyzing Dockerfile..."
+        if [ -f "Dockerfile" ]; then
+          echo "✅ Dockerfile found"
+          echo "📋 Dockerfile content preview:"
+          head -10 Dockerfile
+        else
+          echo "❌ Dockerfile not found"
+          exit 1
+        fi
+        
+    - name: 🔍 Check required files
+      run: |
+        echo "🔍 Checking required files..."
+        required_files=("docs/index.html" "docs/script.js" "docs/style.css" "nginx.conf")
+        
+        for file in "${required_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✅ $file found"
+          else
+            echo "❌ $file missing"
+            exit 1
+          fi
+        done
+        
+    - name: 📊 Project statistics
+      run: |
+        echo "📊 Project Statistics:"
+        echo "📁 Total files: $(find . -type f | wc -l)"
+        echo "📄 HTML files: $(find . -name "*.html" | wc -l)"
+        echo "🎨 CSS files: $(find . -name "*.css" | wc -l)"
+        echo "⚡ JS files: $(find . -name "*.js" | wc -l)"
+        echo "📦 Dockerfile size: $(wc -c < Dockerfile) bytes"
+
+  # Job principal para build y push
+  docker-build-push:
+    name: 🐳 Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: code-analysis
+    
+    # Matriz de estrategia para diferentes tags y plataformas
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            platform-short: amd64
+          - platform: linux/arm64
+            platform-short: arm64
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history para tags
+        
+    - name: 🏷️ Generate metadata
+      id: meta
+      run: |
+        # Generar timestamp
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Detectar version desde HTML o usar fecha
+        VERSION=$(grep -o 'Search v[0-9.]*' docs/index.html | head -1 | sed 's/Search v//' || echo "1.0.0")
+        
+        # Obtener commit hash corto
+        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        
+        # Generar tags
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Para PRs, usar tag de desarrollo
+          DOCKER_TAG="pr-${{ github.event.number }}-${COMMIT_SHORT}"
+          PUSH_TO_HUB="false"
+        elif [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]; then
+          # Para main/master, usar versión y latest
+          DOCKER_TAG="${VERSION}"
+          LATEST_TAG="latest"
+          PUSH_TO_HUB="true"
+        elif [ -n "${{ github.event.inputs.tag }}" ]; then
+          # Tag manual
+          DOCKER_TAG="${{ github.event.inputs.tag }}"
+          PUSH_TO_HUB="${{ github.event.inputs.push_to_hub }}"
+        else
+          # Para otras ramas
+          BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | sed 's/[^a-zA-Z0-9]/-/g')
+          DOCKER_TAG="${BRANCH_NAME}-${COMMIT_SHORT}"
+          PUSH_TO_HUB="false"
+        fi
+        
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "commit-short=${COMMIT_SHORT}" >> $GITHUB_OUTPUT
+        echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+        echo "docker-tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+        echo "latest-tag=${LATEST_TAG:-}" >> $GITHUB_OUTPUT
+        echo "push-to-hub=${PUSH_TO_HUB}" >> $GITHUB_OUTPUT
+        echo "platform-short=${{ matrix.platform-short }}" >> $GITHUB_OUTPUT
+        
+        echo "📋 Generated metadata:"
+        echo "Version: ${VERSION}"
+        echo "Commit: ${COMMIT_SHORT}"
+        echo "Docker tag: ${DOCKER_TAG}"
+        echo "Latest tag: ${LATEST_TAG:-none}"
+        echo "Push to hub: ${PUSH_TO_HUB}"
+        echo "Platform: ${{ matrix.platform }}"
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: ${{ matrix.platform }}
+        driver-opts: |
+          network=host
+
+    - name: 🔐 Log in to Docker Hub
+      if: steps.meta.outputs.push-to-hub == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: 🏗️ Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: ${{ matrix.platform }}
+        push: false
+        load: true
+        tags: |
+          ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}-${{ steps.meta.outputs.platform-short }}
+          ${{ steps.meta.outputs.latest-tag && format('{0}:{1}-{2}', env.IMAGE_NAME, steps.meta.outputs.latest-tag, steps.meta.outputs.platform-short) || '' }}
+        labels: |
+          org.opencontainers.image.title=HenSearch Frontend
+          org.opencontainers.image.description=Modern web frontend for TMOHentai search with responsive design
+          org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          org.opencontainers.image.revision=${{ steps.meta.outputs.commit-short }}
+          org.opencontainers.image.created=${{ steps.meta.outputs.timestamp }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.url=https://hub.docker.com/r/xlokius/hensearch
+          org.opencontainers.image.vendor=HenSearch App
+          org.opencontainers.image.licenses=MIT
+          hensearch.version=${{ steps.meta.outputs.version }}
+          hensearch.platform=${{ matrix.platform }}
+          hensearch.commit=${{ steps.meta.outputs.commit-short }}
+        cache-from: type=gha,scope=hensearch-${{ steps.meta.outputs.platform-short }}
+        cache-to: type=gha,mode=max,scope=hensearch-${{ steps.meta.outputs.platform-short }}
+
+    - name: 🧪 Test Docker image
+      run: |
+        echo "🧪 Testing Docker image..."
+        
+        # Ejecutar contenedor en background
+        docker run -d --name test-container -p 8080:80 \
+          ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}-${{ steps.meta.outputs.platform-short }}
+        
+        # Esperar a que el contenedor se inicie
+        echo "⏳ Waiting for container to start..."
+        sleep 10
+        
+        # Verificar que el contenedor está corriendo
+        if docker ps | grep -q test-container; then
+          echo "✅ Container is running"
+        else
+          echo "❌ Container failed to start"
+          docker logs test-container
+          exit 1
+        fi
+        
+        # Verificar health check
+        echo "🔍 Checking health status..."
+        for i in {1..6}; do
+          HEALTH=$(docker inspect --format='{{.State.Health.Status}}' test-container)
+          echo "Health check attempt $i: $HEALTH"
+          
+          if [ "$HEALTH" = "healthy" ]; then
+            echo "✅ Container is healthy"
+            break
+          elif [ "$i" -eq 6 ]; then
+            echo "❌ Container health check failed"
+            docker logs test-container
+            exit 1
+          fi
+          
+          sleep 10
+        done
+        
+        # Verificar que responde HTTP
+        echo "🌐 Testing HTTP response..."
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ || echo "000")
+        
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ HTTP test passed (Status: $HTTP_CODE)"
+        else
+          echo "❌ HTTP test failed (Status: $HTTP_CODE)"
+          docker logs test-container
+          exit 1
+        fi
+        
+        # Verificar contenido específico
+        echo "🔍 Testing page content..."
+        CONTENT=$(curl -s http://localhost:8080/ | grep -o "TMOHentai Search" | head -1)
+        
+        if [ "$CONTENT" = "TMOHentai Search" ]; then
+          echo "✅ Content test passed"
+        else
+          echo "❌ Content test failed - TMOHentai Search not found"
+          exit 1
+        fi
+        
+        # Cleanup
+        docker stop test-container
+        docker rm test-container
+        
+        echo "🎉 All tests passed!"
+
+    - name: 📊 Image information
+      run: |
+        IMAGE_ID="${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}-${{ steps.meta.outputs.platform-short }}"
+        
+        echo "📊 Docker Image Information:"
+        echo "🏷️ Image: $IMAGE_ID"
+        echo "📏 Size: $(docker images $IMAGE_ID --format 'table {{.Size}}' | tail -1)"
+        echo "🏗️ Architecture: ${{ matrix.platform }}"
+        echo "📅 Created: $(docker inspect $IMAGE_ID --format '{{.Created}}')"
+        
+        # Mostrar layers del image
+        echo ""
+        echo "📋 Image layers:"
+        docker history $IMAGE_ID --format "table {{.CreatedBy}}\t{{.Size}}" | head -10
+
+    - name: 🚀 Push to Docker Hub
+      if: steps.meta.outputs.push-to-hub == 'true'
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: ${{ matrix.platform }}
+        push: true
+        tags: |
+          ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}-${{ steps.meta.outputs.platform-short }}
+          ${{ steps.meta.outputs.latest-tag && format('{0}:{1}-{2}', env.IMAGE_NAME, steps.meta.outputs.latest-tag, steps.meta.outputs.platform-short) || '' }}
+        labels: |
+          org.opencontainers.image.title=HenSearch Frontend
+          org.opencontainers.image.description=Modern web frontend for TMOHentai search with responsive design
+          org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          org.opencontainers.image.revision=${{ steps.meta.outputs.commit-short }}
+          org.opencontainers.image.created=${{ steps.meta.outputs.timestamp }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.url=https://hub.docker.com/r/xlokius/hensearch
+          org.opencontainers.image.vendor=HenSearch App
+          org.opencontainers.image.licenses=MIT
+          hensearch.version=${{ steps.meta.outputs.version }}
+          hensearch.platform=${{ matrix.platform }}
+          hensearch.commit=${{ steps.meta.outputs.commit-short }}
+        cache-from: type=gha,scope=hensearch-${{ steps.meta.outputs.platform-short }}
+        cache-to: type=gha,mode=max,scope=hensearch-${{ steps.meta.outputs.platform-short }}
+
+  # Job para crear manifests multi-architecture
+  create-manifest:
+    name: 📦 Create Multi-Platform Manifest
+    runs-on: ubuntu-latest
+    needs: docker-build-push
+    if: needs.docker-build-push.outputs.push-to-hub == 'true'
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🏷️ Get metadata
+      id: meta
+      run: |
+        VERSION=$(grep -o 'Search v[0-9.]*' docs/index.html | head -1 | sed 's/Search v//' || echo "1.0.0")
+        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        
+        if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]; then
+          DOCKER_TAG="${VERSION}"
+          LATEST_TAG="latest"
+        elif [ -n "${{ github.event.inputs.tag }}" ]; then
+          DOCKER_TAG="${{ github.event.inputs.tag }}"
+        else
+          BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | sed 's/[^a-zA-Z0-9]/-/g')
+          DOCKER_TAG="${BRANCH_NAME}-${COMMIT_SHORT}"
+        fi
+        
+        echo "docker-tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+        echo "latest-tag=${LATEST_TAG:-}" >> $GITHUB_OUTPUT
+
+    - name: 🔐 Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: 📦 Create and push manifest
+      run: |
+        echo "📦 Creating multi-platform manifest..."
+        
+        # Crear manifest para tag versionado
+        docker manifest create ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }} \
+          ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}-amd64 \
+          ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}-arm64
+          
+        docker manifest push ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.docker-tag }}
+        
+        # Crear manifest para latest si aplica
+        if [ -n "${{ steps.meta.outputs.latest-tag }}" ]; then
+          echo "📦 Creating latest manifest..."
+          
+          docker manifest create ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.latest-tag }} \
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.latest-tag }}-amd64 \
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.latest-tag }}-arm64
+            
+          docker manifest push ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.latest-tag }}
+        fi
+        
+        echo "✅ Multi-platform manifests created successfully!"
+
+  # Job final para notificaciones y limpieza
+  post-build:
+    name: 📬 Post-Build Tasks
+    runs-on: ubuntu-latest
+    needs: [code-analysis, docker-build-push]
+    if: always()
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 📊 Build Summary
+      run: |
+        echo "# 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 📋 Build Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Image:** \`${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.docker-build-push.result }}" = "success" ]; then
+          echo "## ✅ Build Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 Docker image built and pushed successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Start" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 80:80 --name hensearch ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ❌ Build Status: FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Build failed. Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🏷️ Available Tags" >> $GITHUB_STEP_SUMMARY
+        echo "- \`latest\` - Latest stable version" >> $GITHUB_STEP_SUMMARY
+        echo "- \`latest-amd64\` - Latest for AMD64 architecture" >> $GITHUB_STEP_SUMMARY
+        echo "- \`latest-arm64\` - Latest for ARM64 architecture" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+        echo "- [Docker Hub Repository](https://hub.docker.com/r/xlokius/hensearch)" >> $GITHUB_STEP_SUMMARY
+        echo "- [GitHub Repository](${{ github.server_url }}/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
+
+    - name: 📬 Notify results
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: |
+        if [ "${{ needs.docker-build-push.result }}" = "success" ]; then
+          echo "🎉 ¡Build completado exitosamente!"
+          echo "✅ Image disponible en: https://hub.docker.com/r/xlokius/hensearch"
+        else
+          echo "❌ Build falló. Revisa los logs para más detalles."
+        fi
